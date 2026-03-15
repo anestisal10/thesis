@@ -1,0 +1,78 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Model weights and large binary files
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.bin
+*.pkl
+*.h5
+*.onnx
+*.npz
+
+# HuggingFace & ML Cache
+.cache/
+hub/
+wandb/
+
+# Test Frameworks
+.pytest_cache/
+pytest.ini
+.coverage
+htmlcov/
+.nox/
+.tox/
+
+# Agent & Tooling
+.agent/
+.gemini/
+.github/
+
+# IDE / Editor
+.vscode/
+.idea/
+*.code-workspace
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Secrets / environment
+.env
+*.env
+
+# Log files and Scratch
+*.log
+test_load_gemma.py
+test_load_output.txt
+
+# Experiment Results & Data
+results/
+# Keep results/ JSON files, but ignore large circuit artifacts if needed
+# results/circuits/*.json
+PAPERS_LIST.md
+PLAN.md
+PROGRESS.md
