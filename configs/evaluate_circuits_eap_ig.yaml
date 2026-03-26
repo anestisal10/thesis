@@ -1,0 +1,38 @@
+# ============================================================
+# Canonical Config: Circuit Evaluation — EAP-IG Circuit
+# Script: experiments/evaluate_circuits.py
+# ============================================================
+#
+# Usage:
+#   python scripts/run_from_config.py \
+#       experiments/evaluate_circuits.py \
+#       configs/evaluate_circuits_eap_ig.yaml
+# ============================================================
+
+# ── Model ───────────────────────────────────────────────────
+model: null
+
+# ── Task ────────────────────────────────────────────────────
+task: ioi
+
+# ── Attribution method whose circuit to evaluate ────────────
+# Choices: eap_ig | lrp
+method: eap_ig
+
+# ── Dataset split ───────────────────────────────────────────
+# Evaluation always uses 'test' to avoid overfitting to the
+# discovery split.
+split: test
+
+# ── Sample counts ───────────────────────────────────────────
+n_samples: 50
+
+# ── Circuit keep ratio ──────────────────────────────────────
+# Top-K fractions of attribution scores to retain (comma separated).
+# (the rest are zero-ablated). 0.1 = keep top 10% of nodes.
+keep_ratios: 0.3
+
+# ── Reproducibility ─────────────────────────────────────────
+seed: 42
+split_seed: 42
+seeds: null

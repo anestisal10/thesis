@@ -1,0 +1,52 @@
+# ============================================================
+# Canonical Config: Magnitude Pruning Baseline
+# Script: experiments/run_pruning_experiment.py
+# ============================================================
+#
+# This config specifies the L2-magnitude baseline pruning
+# sweep (Pillar 1, Step A in PLAN.md). Run at each sparsity
+# level by overriding --sparsity on the command line, or
+# by running scripts/run_pruning_sweep.py which iterates.
+#
+# Usage (single sparsity):
+#   python scripts/run_from_config.py \
+#       experiments/run_pruning_experiment.py \
+#       configs/pruning_magnitude.yaml \
+#       --sparsity 0.4
+#
+# Usage (sweep via run_pruning_sweep.py, which reads this
+# config internally):
+#   python experiments/run_pruning_sweep.py
+# ============================================================
+
+# ── Model ───────────────────────────────────────────────────
+model: null
+
+# ── Task ────────────────────────────────────────────────────
+task: ioi
+
+# ── Pruning strategy ────────────────────────────────────────
+# Choices: magnitude | circuit_locked
+# magnitude: rank all heads/neurons by L2 norm, remove bottom K%.
+strategy: magnitude
+
+# ── Sparsity ────────────────────────────────────────────────
+# Fraction of nodes to REMOVE. E.g. 0.4 = prune 40% of all nodes.
+# Run at 0.2, 0.4, 0.6 for the full degradation curve (PLAN.md).
+sparsity: 0.4
+
+# ── Dataset split ───────────────────────────────────────────
+split: test
+
+# ── Sample counts ───────────────────────────────────────────
+# 100 samples per run gives stable metric estimates. Reduce to
+# 50 for rapid iteration.
+n_samples: 100
+
+# ── Reproducibility ─────────────────────────────────────────
+seed: 42
+split_seed: 42
+
+# ── Multi-seed sweep ────────────────────────────────────────
+# Leave null for a single run. "1,2,3" for multi-seed averaging.
+seeds: null

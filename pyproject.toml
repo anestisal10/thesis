@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "thesis_src"
+version = "0.1.0"
+description = "ECE Diploma Thesis - LLM Model Compression & Mechanistic Interpretability"
+dependencies = [
+    "torch",
+    "transformers",
+    "datasets",
+    "numpy",
+    "scipy",
+    "pytest"
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]

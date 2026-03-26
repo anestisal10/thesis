@@ -1,0 +1,49 @@
+# ============================================================
+# Canonical Config: LRP Circuit Discovery
+# Script: experiments/run_lrp_discovery.py
+# ============================================================
+#
+# Every parameter that run_lrp_discovery.py accepts is listed
+# here. See configs/circuit_discovery_eap_ig.yaml for usage
+# instructions.
+#
+# Usage:
+#   python scripts/run_from_config.py \
+#       experiments/run_lrp_discovery.py \
+#       configs/circuit_discovery_lrp.yaml
+# ============================================================
+
+# ── Model ───────────────────────────────────────────────────
+model: null
+
+# ── Task ────────────────────────────────────────────────────
+task: ioi
+
+# ── Dataset split ───────────────────────────────────────────
+split: train
+
+# ── Sample counts ───────────────────────────────────────────
+n_samples: 1000
+
+# ── LRP mode ────────────────────────────────────────────────
+# Choices:
+#   lrp_eps         — True LRP-ε: manual layer-by-layer
+#                     propagation through all nn.Linear
+#                     modules with conservation checking.
+#                     Recommended for thesis results.
+#   input_x_grad    — Input × Gradient approximation (legacy).
+#                     Fast backward-hook approach; does NOT
+#                     enforce conservation across layers.
+#                     Retained for ablation comparison.
+lrp_mode: lrp_eps
+
+# ── LRP epsilon ─────────────────────────────────────────────
+# Numerical stabilizer in the denominator of the LRP-ε rule:
+#   S = R / (z + ε · sign(z))
+# Larger ε → smoother but less sharp relevance maps.
+lrp_epsilon: 1.0e-9
+
+# ── Reproducibility ─────────────────────────────────────────
+seed: 42
+split_seed: 42
+seeds: null

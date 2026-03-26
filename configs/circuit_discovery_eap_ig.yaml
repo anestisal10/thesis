@@ -1,0 +1,64 @@
+# ============================================================
+# Canonical Config: EAP-IG Circuit Discovery
+# Script: experiments/run_circuit_discovery.py
+# ============================================================
+#
+# Every parameter that run_circuit_discovery.py accepts is
+# listed here. This file is the single source of truth for
+# a reproducible EAP-IG discovery run. Do not run the script
+# manually with ad-hoc CLI flags — always go through this
+# config (via scripts/run_from_config.py) so the exact
+# parameters are captured in every experiment log.
+#
+# Usage:
+#   python scripts/run_from_config.py \
+#       experiments/run_circuit_discovery.py \
+#       configs/circuit_discovery_eap_ig.yaml
+#
+# To override a single parameter without editing this file:
+#   python scripts/run_from_config.py \
+#       experiments/run_circuit_discovery.py \
+#       configs/circuit_discovery_eap_ig.yaml \
+#       --task greater_than
+# ============================================================
+
+# ── Model ───────────────────────────────────────────────────
+# null → auto-select: gemma-3-270m-it for tool_selection,
+#                     gemma-3-270m for all other tasks.
+model: null
+
+# ── Task ────────────────────────────────────────────────────
+# Choices: ioi | greater_than | tool_selection
+task: ioi
+
+# ── Dataset split ───────────────────────────────────────────
+# Choices: train | val | test
+# Discovery uses 'train' to avoid contaminating evaluation.
+split: train
+
+# ── Sample counts ───────────────────────────────────────────
+# Number of prompts to run EAP-IG over. 50 is the validated
+# default from Phase 1 (see PROGRESS.md Week 2).
+n_samples: 1000
+
+# ── Integrated Gradients steps ──────────────────────────────
+# Interpolation steps from clean to corrupted embeddings.
+# 5 is the Phase 1 default; increase for higher fidelity.
+n_steps: 5
+
+# ── Reproducibility ─────────────────────────────────────────
+# seed: controls dropout / any stochastic ops during the run.
+# split_seed: fixed seed used only for train/val/test split;
+#             never change this between runs of the same task.
+seed: 42
+split_seed: 42
+
+# ── Multi-seed sweep ────────────────────────────────────────
+# Leave null for a single-seed run. Set to a comma-separated
+# list (e.g. "1,2,3") to average circuits across seeds.
+seeds: null
+
+# ── Dry run ─────────────────────────────────────────────────
+# If true, forward pass only — no EAP-IG, no circuit saved.
+# Useful for checking that prompts and targets parse correctly.
+dry_run: false

@@ -1,0 +1,42 @@
+﻿============================= test session starts =============================
+platform win32 -- Python 3.13.7, pytest-8.4.2, pluggy-1.6.0
+rootdir: C:\Users\ANESTIS\Desktop\Anestis\Uni\THESIS\Experiments
+configfile: pyproject.toml
+plugins: anyio-4.11.0, jaxtyping-0.3.3, asyncio-1.3.0, cov-7.0.0, timeout-2.4.0, typeguard-4.4.4
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 16 items
+
+tests\test_lrp_conservation.py .....                                     [ 31%]
+tests\test_metrics.py FF...                                              [ 62%]
+tests\test_pipeline_regressions.py ....                                  [ 87%]
+tests\test_smoke.py ..                                                   [100%]
+
+================================== FAILURES ===================================
+___________________________ test_compute_logit_diff ___________________________
+tests\test_metrics.py:18: in test_compute_logit_diff
+    diff = compute_logit_diff(logits, target_token_id=0, distractor_token_id=1)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   TypeError: compute_logit_diff() got an unexpected keyword argument 'target_token_id'
+___________________________ test_compute_prob_diff ____________________________
+tests\test_metrics.py:33: in test_compute_prob_diff
+    prob_diff = compute_prob_diff(logits, correct_token_ids=[0], incorrect_token_ids=[1, 2])
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   TypeError: compute_prob_diff() got an unexpected keyword argument 'correct_token_ids'
+============================== warnings summary ===============================
+..\..\..\..\..\..\..\Python313\Lib\site-packages\torchao\dtypes\uintx\__init__.py:1
+  C:\Python313\Lib\site-packages\torchao\dtypes\uintx\__init__.py:1: DeprecationWarning: Importing from torchao.dtypes.uintx.dyn_int8_act_int4_wei_cpu_layout is deprecated. Please use 'from torchao.prototype.dtypes import Int8DynamicActInt4WeightCPULayout' instead. This import path will be removed in a future release of torchao. See https://github.com/pytorch/ao/issues/2752 for more details.
+    from .dyn_int8_act_int4_wei_cpu_layout import (
+
+..\..\..\..\..\..\..\Python313\Lib\site-packages\torchao\dtypes\uintx\__init__.py:22
+  C:\Python313\Lib\site-packages\torchao\dtypes\uintx\__init__.py:22: DeprecationWarning: Importing from torchao.dtypes.uintx.uintx_layout is deprecated. Please use 'from torchao.prototype.dtypes import UintxLayout, UintxTensor' instead. This import path will be removed in a future release of torchao. See https://github.com/pytorch/ao/issues/2752 for more details.
+    from .uintx_layout import (
+
+..\..\..\..\..\..\..\Python313\Lib\site-packages\torchao\dtypes\__init__.py:23
+  C:\Python313\Lib\site-packages\torchao\dtypes\__init__.py:23: DeprecationWarning: Importing BlockSparseLayout from torchao.dtypes is deprecated. Please use 'from torchao.prototype.dtypes import BlockSparseLayout' instead. This import path will be removed in a future torchao release. Please check issue: https://github.com/pytorch/ao/issues/2752 for more details. 
+    from .uintx.block_sparse_layout import BlockSparseLayout
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/test_metrics.py::test_compute_logit_diff - TypeError: compute_lo...
+FAILED tests/test_metrics.py::test_compute_prob_diff - TypeError: compute_pro...
+================== 2 failed, 14 passed, 3 warnings in 7.37s ===================

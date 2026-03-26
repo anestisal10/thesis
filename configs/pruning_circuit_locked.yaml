@@ -1,0 +1,31 @@
+# ============================================================
+# Canonical Config: Circuit-Locked Pruning (Proposed Method)
+# Script: experiments/run_pruning_experiment.py
+# ============================================================
+#
+# This config specifies the Circuit-Locked pruning strategy
+# (Pillar 1, Step B in PLAN.md). Circuit-Locked freezes the
+# top-10% nodes identified by the union of EAP-IG + LRP
+# circuits and prunes only from the remaining nodes to reach
+# the same global sparsity as the magnitude baseline.
+#
+# PREREQUISITE: Both EAP-IG and LRP circuit files must exist
+# under results/circuits/ for the selected task before running.
+# Run run_circuit_discovery.py and run_lrp_discovery.py first.
+#
+# Usage:
+#   python scripts/run_from_config.py \
+#       experiments/run_pruning_experiment.py \
+#       configs/pruning_circuit_locked.yaml \
+#       --sparsity 0.4
+# ============================================================
+
+model: null
+task: ioi
+strategy: circuit_locked
+sparsity: 0.4
+split: test
+n_samples: 100
+seed: 42
+split_seed: 42
+seeds: null

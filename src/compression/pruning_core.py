@@ -2,7 +2,9 @@ import torch
 import torch.nn as nn
 from typing import Dict, Optional, List
 
-class MagnitudePruner:
+from compression.ablator import StructuralAblator
+
+class MagnitudePruner(StructuralAblator):
     """
     A unified structural pruning engine that supports both:
     1. Baseline L2-Magnitude Pruning
@@ -12,171 +14,85 @@ class MagnitudePruner:
     and MLP intermediate neurons.
     """
     def __init__(self, model, keep_ratio: float, circuit_scores: Optional[Dict] = None):
-        self.model = model
+        super().__init__(model)
         self.keep_ratio = keep_ratio
         
-        # Determine model structure parameters
-        if hasattr(model.config, "num_attention_heads"):
-            self.num_heads = model.config.num_attention_heads
-            if hasattr(model.config, "head_dim"):
-                self.head_dim = model.config.head_dim
-            elif hasattr(model.config, "hidden_size"):
-                self.head_dim = model.config.hidden_size // self.num_heads
-            else:
-                raise NotImplementedError("Cannot determine head_dim from config.")
-        else:
-            raise NotImplementedError("Model config does not expose num_attention_heads.")
-            
-        self.num_layers = len(model.model.layers)
-        self.intermediate_size = getattr(model.config, "intermediate_size", None)
-        if self.intermediate_size is None:
-             raise NotImplementedError("Model config does not expose intermediate_size.")
-
         # Set of node keys that MUST NOT be pruned (the protected circuit)
         self.protected_nodes = set()
         if circuit_scores is not None:
             self._parse_protected_nodes(circuit_scores)
             
-        self.attn_masks = {}
-        self.mlp_masks = {}
-        self.hooks = []
-        
-        self._calculate_norms_and_build_masks()
+        self._build_masks()
 
     def _parse_protected_nodes(self, circuit_scores):
-        """Extracts the node keys from the circuit dictionaries that should be protected."""
-        # Typically, a circuit dict from EAP-IG/LRP assigns scores to nodes.
-        # We need to compute the top 10% (keep_ratio) threshold of the original circuit
-        # or assume the provided dict is ALREADY the minimal circuit we want to protect.
-        # We assume the caller passes the minimal circuit dict (i.e. only keys > threshold).
-        # Actually, let's look at `evaluate_circuits.py`: it thresholds at runtime.
-        # We should threshold here using the same top 10% logic as evaluate_circuits.py
-        
-        all_scores = []
-        for k, v in circuit_scores.items():
-            if isinstance(v, list):
-                all_scores.extend([abs(x) for x in v])
-            else:
-                all_scores.append(abs(v))
-
-        if not all_scores:
-            threshold = 0.0
-        else:
-            sorted_scores = sorted(all_scores, reverse=True)
-            k_idx = max(0, int(len(sorted_scores) * 0.1) - 1) # Assuming circuits are always top 10%
-            threshold = sorted_scores[k_idx]
-            
+        """Extracts the node keys from the circuit dictionaries that should be protected.
+        Assumes the provided dict is already parsed as the minimal circuit to protect.
+        """
         for k, v in circuit_scores.items():
             if isinstance(v, list):
                  for neuron_idx, score in enumerate(v):
-                     if abs(score) >= threshold:
-                         self.protected_nodes.add(f"{k}_{neuron_idx}")
+                     self.protected_nodes.add(f"{k}_{neuron_idx}")
             else:
-                if abs(v) >= threshold:
-                    self.protected_nodes.add(k)
+                 self.protected_nodes.add(k)
                     
         print(f"[MagnitudePruner] Locked {len(self.protected_nodes)} nodes from the MI circuit.")
 
-    def _calculate_norms_and_build_masks(self):
-        """Calculates L2 norms for all nodes, ranks them, and builds zero-masks."""
-        node_norms = {}
+    def _build_masks(self):
+        """Calculates L2 norms for all nodes, ranks them, and builds zero-masks using vectorized operations."""
+        # Tensors to store all norms
+        # Keep norms on CPU to avoid device mismatch when model is on CUDA.
+        all_head_norms = torch.zeros(self.num_layers, self.num_heads, device="cpu")
+        all_neuron_norms = torch.zeros(self.num_layers, self.intermediate_size, device="cpu")
         
-        # Calculate L2 Norms for all Attention Heads and MLP Neurons
+        # 1. Calculate L2 Norms
         for i, layer in enumerate(self.model.model.layers):
-            # Attention Heads
-            # For Gemma, W_q, W_k, W_v, W_o. We can just use W_o (o_proj) and W_v (v_proj).
-            # Usually, structural pruning looks at the output projection weights.
-            o_proj_weight = layer.self_attn.o_proj.weight.detach() # shape: [hidden_dim, num_heads * head_dim]
+            # Attention Heads (Output projection weight norm)
+            o_proj_weight = layer.self_attn.o_proj.weight.detach()
+            o_proj_reshaped = o_proj_weight.view(o_proj_weight.shape[0], self.num_heads, -1)
+            head_norms = torch.norm(o_proj_reshaped, p=2, dim=(0, 2)).detach().cpu()
+            all_head_norms[i] = head_norms
             
-            # Reshape into [hidden_dim, num_heads, head_dim] then compute norm per head
-            # Norm is calculated over output features (dim 0) and head dimension (dim 2)
-            o_proj_reshaped = o_proj_weight.view(o_proj_weight.shape[0], self.num_heads, self.head_dim)
-            head_norms = torch.norm(o_proj_reshaped, p=2, dim=(0, 2)) # shape: [num_heads]
-            
-            for h in range(self.num_heads):
-                node_norms[f"L{i}_attn_H{h}"] = head_norms[h].item()
-                
-            # MLP Neurons
-            # For Gemma, it's (gate_proj(x) * up_proj(x)) * down_proj
-            # We look at the output projection of the MLP stream: down_proj
-            down_proj_weight = layer.mlp.down_proj.weight.detach() # shape: [hidden_dim, intermediate_size]
-            
-            # Norm per neuron (column of down_proj)
-            neuron_norms = torch.norm(down_proj_weight, p=2, dim=0) # shape: [intermediate_size]
-            
-            for n in range(self.intermediate_size):
-                node_norms[f"L{i}_mlp_neurons_{n}"] = neuron_norms[n].item()
+            # MLP Neurons (Output projection weight norm)
+            down_proj_weight = layer.mlp.down_proj.weight.detach()
+            neuron_norms = torch.norm(down_proj_weight, p=2, dim=0).detach().cpu()
+            all_neuron_norms[i] = neuron_norms
 
-        # Overwrite norms for protected nodes to infinity so they are never pruned
+        # 2. Inject Protection (Protected MI circuit nodes get INF norm)
         for node in self.protected_nodes:
-            if node in node_norms:
-                node_norms[node] = float('inf')
-                
-        # Rank the nodes by norm
-        all_node_names = list(node_norms.keys())
-        all_node_values = list(node_norms.values())
-        
-        # Sort in descending order (highest norms first)
-        sorted_indices = sorted(range(len(all_node_values)), key=lambda k: all_node_values[k], reverse=True)
-        
-        # Determine how many nodes to keep overall
-        num_total_nodes = len(all_node_names)
-        num_keep = int(num_total_nodes * self.keep_ratio)
-        
-        # Create a set of nodes to keep
-        nodes_to_keep = set()
-        for idx in sorted_indices[:num_keep]:
-            nodes_to_keep.add(all_node_names[idx])
-            
-        print(f"[MagnitudePruner] Global Pruning Constraint: Keeping {num_keep}/{num_total_nodes} nodes (Sparsity: {(1 - self.keep_ratio)*100:.1f}%)")
-        
-        # Overlap check
-        overlap = len(nodes_to_keep.intersection(self.protected_nodes))
-        print(f"[MagnitudePruner] {overlap} of the {len(self.protected_nodes)} protected circuit nodes naturally survived L2 pruning.")
+            if "attn" in node: # e.g., L0_attn_H5
+                try:
+                    parts = node.split("_")
+                    layer_idx = int(str(parts[0])[1:])
+                    head_idx = int(str(parts[2])[1:])
+                    all_head_norms[layer_idx, head_idx] = float('inf')
+                except Exception as e:
+                    raise ValueError(f"Failed to parse protected attn node '{node}': {e}")
+            elif "mlp" in node: # e.g., L0_mlp_neurons_123
+                try:
+                    parts = node.split("_")
+                    layer_idx = int(str(parts[0])[1:])
+                    neuron_idx = int(str(parts[3]))
+                    all_neuron_norms[layer_idx, neuron_idx] = float('inf')
+                except Exception as e:
+                    raise ValueError(f"Failed to parse protected mlp node '{node}': {e}")
 
-        # Build actual dense tensors for masking
+        # 3. Rank and Threshold
+        flat_norms = torch.cat([all_head_norms.flatten(), all_neuron_norms.flatten()])
+        num_total = flat_norms.numel()
+        num_keep = int(num_total * self.keep_ratio)
+        
+        # Sort values to find threshold
+        sorted_norms, _ = torch.sort(flat_norms, descending=True)
+        threshold = sorted_norms[num_keep - 1] if num_keep > 0 else float('inf')
+        
+        print(f"[MagnitudePruner] Global Threshold: {threshold:.6f} | Keeping {num_keep}/{num_total} nodes")
+
+        # 4. Build Masks Vectorized
         for i in range(self.num_layers):
-            attn_mask = torch.zeros(self.num_heads, dtype=torch.bool)
-            for h in range(self.num_heads):
-                if f"L{i}_attn_H{h}" in nodes_to_keep:
-                    attn_mask[h] = True
-            self.attn_masks[i] = attn_mask
+            self.attn_masks[i] = all_head_norms[i] >= threshold
+            self.mlp_masks[i] = all_neuron_norms[i] >= threshold
             
-            mlp_mask = torch.zeros(self.intermediate_size, dtype=torch.bool)
-            for n in range(self.intermediate_size):
-                 if f"L{i}_mlp_neurons_{n}" in nodes_to_keep:
-                     mlp_mask[n] = True
-            self.mlp_masks[i] = mlp_mask
-
-    def apply_hooks(self):
-        """Attaches forward pre-hooks to zero-out pruned components dynamically."""
-        self.remove_hooks()
-        for i, layer in enumerate(self.model.model.layers):
-            def make_attn_pre_hook(mask):
-                def pre_hook(module, args):
-                    x = args[0]
-                    batch, seq, hidden = x.shape
-                    x_reshaped = x.view(batch, seq, self.num_heads, self.head_dim)
-                    mask_dev = mask.to(x.device).view(1, 1, self.num_heads, 1)
-                    x_ablated = (x_reshaped * mask_dev).view(batch, seq, hidden)
-                    return (x_ablated,)
-                return pre_hook
-
-            def make_mlp_pre_hook(mask):
-                def pre_hook(module, args):
-                    x = args[0]
-                    mask_dev = mask.to(x.device).view(1, 1, -1)
-                    x_ablated = x * mask_dev
-                    return (x_ablated,)
-                return pre_hook
-
-            h1 = layer.self_attn.o_proj.register_forward_pre_hook(make_attn_pre_hook(self.attn_masks[i]))
-            self.hooks.append(h1)
-
-            h2 = layer.mlp.down_proj.register_forward_pre_hook(make_mlp_pre_hook(self.mlp_masks[i]))
-            self.hooks.append(h2)
-
-    def remove_hooks(self):
-        for h in self.hooks:
-            h.remove()
-        self.hooks.clear()
+        # Logging overlap for sanity
+        protected_count = len(self.protected_nodes)
+        survived = torch.sum(all_head_norms == float('inf')).item() + torch.sum(all_neuron_norms == float('inf')).item()
+        print(f"[MagnitudePruner] Protected nodes: {protected_count} | Enforced survival: {survived}")

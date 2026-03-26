@@ -5,6 +5,7 @@ Reads both circuit JSON files and computes the intersection / union of top-K com
 import json
 import argparse
 import sys
+import re
 from pathlib import Path
 
 # Robust absolute path resolution — works from any working directory
@@ -20,12 +21,57 @@ def load_circuit(path):
         return json.load(f)
 
 
+def _extract_layer_idx(key: str) -> int | None:
+    """Extract layer index from known key formats."""
+    # EAP-IG: L5_mlp_neurons
+    m = re.search(r"\bL(\d+)_mlp\b", key)
+    if m:
+        return int(m.group(1))
+    # LRP (HF module path): model.model.layers.5.mlp.down_proj_neurons
+    m = re.search(r"layers\.(\d+)\.", key)
+    if m:
+        return int(m.group(1))
+    return None
+
+
+def _normalize_attn_key(key: str) -> str:
+    m = re.search(r"\bL(\d+)_attn_H(\d+)\b", key)
+    if m:
+        return f"L{m.group(1)}_attn_H{m.group(2)}"
+
+    m = re.search(r"layers\.(\d+)\..*_H(\d+)$", key)
+    if m:
+        return f"L{m.group(1)}_attn_H{m.group(2)}"
+
+    return key
+
+
+def _aggregate_mlp_layer_scores(circuit):
+    """
+    Aggregate MLP projection neuron lists to per-layer scores.
+    For LRP, sum abs scores across up/gate/down projections per layer.
+    For EAP-IG, the single per-layer list is treated the same way.
+    """
+    scores = {}
+    for key, val in circuit.items():
+        if "mlp" not in key or not isinstance(val, list):
+            continue
+        layer_idx = _extract_layer_idx(key)
+        layer_key = f"L{layer_idx}_mlp" if layer_idx is not None else key
+        layer_score = sum(abs(x) for x in val)
+        scores[layer_key] = scores.get(layer_key, 0.0) + layer_score
+    return scores
+
+
 def get_top_k_nodes(circuit, k=10, node_type="attn"):
     """Return a set of the top-K attention heads or MLP layers by absolute score."""
     if node_type == "attn":
-        scores = {key: abs(v) for key, v in circuit.items() if "attn" in key and isinstance(v, (int, float))}
+        scores = {}
+        for key, v in circuit.items():
+            if "attn" in key and isinstance(v, (int, float)):
+                scores[_normalize_attn_key(key)] = abs(v)
     else:
-        scores = {key: sum(abs(x) for x in v) for key, v in circuit.items() if "mlp" in key and isinstance(v, list)}
+        scores = _aggregate_mlp_layer_scores(circuit)
 
     sorted_nodes = sorted(scores.items(), key=lambda x: x[1], reverse=True)
     return set(n for n, _ in sorted_nodes[:k])
@@ -80,11 +126,11 @@ def compare_circuits():
     lrp_mlp = get_top_k_nodes(lrp_circuit, k=args.top_k, node_type="mlp")
     j_mlp = jaccard_similarity(eap_mlp, lrp_mlp)
 
-    print(f"\nTop-{args.top_k} MLP Layers")
+    print(f"\nTop-{args.top_k} MLP Layers (Aggregated)")
     print(f"  EAP-IG: {sorted(eap_mlp)}")
     print(f"  LRP:    {sorted(lrp_mlp)}")
     print(f"  Shared: {sorted(eap_mlp & lrp_mlp)}")
-    print(f"  Jaccard Similarity (MLP): {j_mlp:.4f}")
+    print(f"  Jaccard Similarity (MLP, Aggregated): {j_mlp:.4f}")
 
     log_experiment(
         task=args.task,

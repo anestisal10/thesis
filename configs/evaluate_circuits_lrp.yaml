@@ -1,0 +1,20 @@
+# ============================================================
+# Canonical Config: Circuit Evaluation — LRP Circuit
+# Script: experiments/evaluate_circuits.py
+# ============================================================
+#
+# Usage:
+#   python scripts/run_from_config.py \
+#       experiments/evaluate_circuits.py \
+#       configs/evaluate_circuits_lrp.yaml
+# ============================================================
+
+model: null
+task: ioi
+method: lrp
+split: test
+n_samples: 50
+keep_ratios: 0.1
+seed: 42
+split_seed: 42
+seeds: null

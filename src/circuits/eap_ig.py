@@ -9,6 +9,7 @@ class EAP_IG_Tracker:
         self.accumulated_grads = {}
         self.current_tensors = {}
         self.hooks = []
+        self._null_grad_count = 0
         
         # Figure out the number of heads dynamically from model config.
         # Raises NotImplementedError for unknown architectures rather than silently guessing,
@@ -34,9 +35,9 @@ class EAP_IG_Tracker:
         def hook(module, args, output):
             x = args[0] # The input to the linear projection
             if capture_type == "clean":
-                self.clean_activations[name] = x.detach().clone()
+                self.clean_activations[name] = x.detach().clone().cpu()
             elif capture_type == "corrupted":
-                self.corrupted_activations[name] = x.detach().clone()
+                self.corrupted_activations[name] = x.detach().clone().cpu()
             elif capture_type == "ig":
                 if x.requires_grad:
                     x.retain_grad()
@@ -69,18 +70,29 @@ class EAP_IG_Tracker:
                 self.accumulated_grads[name] = torch.zeros_like(tensor)
             if tensor.grad is not None:
                 self.accumulated_grads[name] += tensor.grad.detach()
+            else:
+                self._null_grad_count += 1
 
-    def compute_scores(self, n_steps: int):
-        """Computes the final EAP-IG node attribution scores."""
+    def compute_scores(self, n_steps: int, attention_mask: torch.Tensor = None):
+        """
+        Computes the final EAP-IG node attribution scores.
+        If attention_mask is provided [batch, seq], it masks out pad positions.
+        """
         scores = {}
         
         for name in self.clean_activations:
-            diff = self.corrupted_activations[name] - self.clean_activations[name]
+            diff = self.corrupted_activations[name].to(self.model.device) - self.clean_activations[name].to(self.model.device)
             avg_grad = self.accumulated_grads.get(name, torch.zeros_like(diff)) / n_steps
             
-            # Element-wise attribution
+            # Element-wise attribution: [batch, seq, hidden]
             attribution = diff * avg_grad
             
+            # Mask out pad positions if mask provided
+            if attention_mask is not None:
+                # attention_mask: [batch, seq] -> [batch, seq, 1] for broadcasting
+                mask = attention_mask.unsqueeze(-1).to(attribution.device)
+                attribution = attribution * mask
+
             if "attn" in name:
                 # Shape: [batch, seq, num_heads * head_dim] -> [batch, seq, num_heads, head_dim]
                 batch, seq, _ = attribution.shape
@@ -105,7 +117,9 @@ def get_eap_ig_scores(
     model: PreTrainedModel, 
     clean_embeds: torch.Tensor, 
     corrupted_embeds: torch.Tensor, 
-    attention_mask: torch.Tensor,
+    clean_attention_mask: torch.Tensor,
+    corrupted_attention_mask: torch.Tensor,
+    ig_attention_mask: torch.Tensor | None,
     metric_fn, 
     n_steps: int = 5
 ):
@@ -119,37 +133,45 @@ def get_eap_ig_scores(
     # 1. Forward pass on clean inputs
     tracker.set_hooks("clean")
     with torch.no_grad():
-        model(inputs_embeds=clean_embeds, attention_mask=attention_mask, output_hidden_states=False)
+        model(inputs_embeds=clean_embeds, attention_mask=clean_attention_mask, output_hidden_states=False)
         
     # 2. Forward pass on corrupted inputs
     tracker.set_hooks("corrupted")
     with torch.no_grad():
-        model(inputs_embeds=corrupted_embeds, attention_mask=attention_mask, output_hidden_states=False)
+        model(inputs_embeds=corrupted_embeds, attention_mask=corrupted_attention_mask, output_hidden_states=False)
         
     # 3. IG Steps
     diff_embeds = corrupted_embeds - clean_embeds
     tracker.set_hooks("ig")
+    if ig_attention_mask is None:
+        ig_attention_mask = clean_attention_mask
     
-    for step in range(1, n_steps + 1):
-        alpha = step / n_steps
-        interpolated_embeds = clean_embeds + alpha * diff_embeds
-        interpolated_embeds.requires_grad_(True)
-        
-        outputs = model(
-            inputs_embeds=interpolated_embeds,
-            attention_mask=attention_mask,
-            output_hidden_states=False
-        )
-        
-        loss = metric_fn(outputs.logits)
-        model.zero_grad()
-        loss.backward()
-        
-        tracker.accumulate_grads()
-        
-    tracker.remove_hooks()
+    try:
+        for step in range(1, n_steps + 1):
+            alpha = step / n_steps
+            interpolated_embeds = clean_embeds + alpha * diff_embeds
+            interpolated_embeds.requires_grad_(True)
+            
+            outputs = model(
+                inputs_embeds=interpolated_embeds,
+                attention_mask=ig_attention_mask,
+                output_hidden_states=False
+            )
+            
+            loss = metric_fn(outputs.logits)
+            model.zero_grad()
+            loss.backward()
+            
+            tracker.accumulate_grads()
+            
+    finally:
+        tracker.remove_hooks()
     
-    # 4. Compute final scores
-    scores = tracker.compute_scores(n_steps)
+    # 4. Compute final scores with pad masking
+    scores = tracker.compute_scores(n_steps, attention_mask=ig_attention_mask)
+    
+    if tracker._null_grad_count > 0:
+        print(f"WARNING: {tracker._null_grad_count} instances of NULL gradients detected during EAP-IG accumulation. Check model connectivity.")
+    
     print(f"Computed EAP-IG node attribution scores over {n_steps} steps.")
     return scores

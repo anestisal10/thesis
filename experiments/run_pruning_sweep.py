@@ -1,32 +1,26 @@
 import subprocess
-import itertools
 import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-tasks = ["ioi", "greater_than", "tool_selection"]
-strategies = ["magnitude", "circuit_locked"]
-sparsities = [0.2, 0.4, 0.6]
+# Task 7: Update run_pruning_sweep to use Canonical configs
+configs = [
+    REPO_ROOT / "configs" / "pruning_magnitude.yaml",
+    REPO_ROOT / "configs" / "pruning_circuit_locked.yaml"
+]
 
-total_runs = len(tasks) * len(strategies) * len(sparsities)
-current_run = 1
-
-for task, strategy, sparsity in itertools.product(tasks, strategies, sparsities):
+print("Starting pruning sweep using canonical configs...")
+for config_path in configs:
+    if not config_path.exists():
+        print(f"Config not found: {config_path}")
+        continue
+    
     print(f"\n=========================================")
-    print(f"Run {current_run}/{total_runs}: [Task: {task}] [Strategy: {strategy}] [Sparsity: {sparsity*100:.0f}%]")
+    print(f"Running config: {config_path.name}")
     print(f"=========================================\n")
     
-    cmd = [
-        sys.executable, str(REPO_ROOT / "experiments" / "run_pruning_experiment.py"),
-        "--task", task,
-        "--strategy", strategy,
-        "--sparsity", str(sparsity),
-        "--n_samples", "50" # 50 to speed up this sweep
-    ]
-    
-    # Run the pruning experiment
+    cmd = [sys.executable, str(REPO_ROOT / "scripts" / "run_from_config.py"), "--config", str(config_path)]
     subprocess.run(cmd, check=True)
-    current_run += 1
 
-print("\nAll pruning experiments completed successfully.")
+print("\nSweep completed.")

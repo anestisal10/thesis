@@ -68,9 +68,12 @@ desktop.ini
 *.log
 test_load_gemma.py
 test_load_output.txt
+tmp_*.py
+lrp_debug_shapes.txt
 
 # Experiment Results & Data
 results/
+data/
 # Keep results/ JSON files, but ignore large circuit artifacts if needed
 # results/circuits/*.json
 PAPERS_LIST.md
